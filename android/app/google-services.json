@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "891225857370",
+    "project_id": "aj-store-75103",
+    "storage_bucket": "aj-store-75103.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:891225857370:android:e41a4fe451ee78964be763",
+        "android_client_info": {
+          "package_name": "com.example.aj_store"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "891225857370-b1gjvh7ca4ouedmub5uhfdmnad54ri5s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxQg3B88MuyxeOoT07TQT4eHxgoTt01vI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "891225857370-b1gjvh7ca4ouedmub5uhfdmnad54ri5s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
