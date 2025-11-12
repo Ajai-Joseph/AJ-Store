@@ -1,8 +1,13 @@
 import 'dart:io';
 
-import 'package:aj_store/login.dart';
 import 'package:aj_store/profile.dart';
 import 'package:aj_store/resetPassword.dart';
+import 'package:aj_store/widgets/modern_button.dart';
+import 'package:aj_store/widgets/modern_text_field.dart';
+import 'package:aj_store/theme/app_colors.dart';
+import 'package:aj_store/theme/app_text_styles.dart';
+import 'package:aj_store/constants/app_spacing.dart';
+import 'package:aj_store/utils/page_transitions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -11,253 +16,491 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:image_picker/image_picker.dart';
 
 class UpdateProfile extends StatefulWidget {
-  UpdateProfile({Key? key}) : super(key: key);
+  const UpdateProfile({super.key});
 
   @override
   State<UpdateProfile> createState() => _UpdateProfileState();
 }
 
 class _UpdateProfileState extends State<UpdateProfile> {
-  final GlobalKey<FormState> formKey = GlobalKey();
-  FirebaseAuth auth = FirebaseAuth.instance;
+  final GlobalKey<FormState> _formKey = GlobalKey();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  FirebaseFirestore firestore = FirebaseFirestore.instance;
-
-  TextEditingController phoneController = TextEditingController();
-  TextEditingController nameController = TextEditingController();
-  TextEditingController placeController = TextEditingController();
-  String? name, phone, place;
-  var image;
-  var img;
-  var imgUrl;
-  int flag = 0;
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _placeController = TextEditingController();
+  
+  String? _name, _phone, _place;
+  String? _image;
+  XFile? _selectedImage;
+  String? _imgUrl;
+  bool _hasImageChanged = false;
+  bool _isLoading = false;
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text("Edit Profile"),
+        title: const Text("Edit Profile"),
+        backgroundColor: Colors.transparent,
         flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.blue,
-                Colors.purple,
-              ],
-            ),
+          decoration: const BoxDecoration(
+            gradient: AppColors.primaryGradient,
           ),
         ),
+        elevation: 0,
         actions: [
           PopupMenuButton(
-            onSelected: (item) => select(context, item),
-            itemBuilder: (context) => [
+            icon: const Icon(Icons.more_vert),
+            onSelected: (item) => _handleMenuSelection(context, item),
+            itemBuilder: (context) => const [
               PopupMenuItem(
                 value: 0,
-                child: Text("Change Email"),
-              ),
-              PopupMenuItem(
-                value: 1,
-                child: Text("Change Password"),
+                child: Row(
+                  children: [
+                    Icon(Icons.lock_outline, size: AppSpacing.iconSM),
+                    SizedBox(width: AppSpacing.sm),
+                    Text("Change Password"),
+                  ],
+                ),
               ),
             ],
           )
         ],
       ),
-      body: SingleChildScrollView(
-        child: FutureBuilder(
-          future: FirebaseFirestore.instance
-              .collection("Users")
-              .doc(auth.currentUser!.uid)
-              .get()
-              .then((value) => {
-                    name = value.data()!['Name'],
-                    image = value.data()!['Image'],
-                    phone = value.data()!['Phone'],
-                    place = value.data()!['Place'],
-                  }),
-          builder: (context, snapshot) {
-            if (snapshot.hasData) {
-              return Padding(
-                padding: EdgeInsets.all(16),
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    children: [
-                      InkWell(
-                        onTap: () {
-                          showModalBottomSheet(
-                              context: context,
-                              builder: (builder) => bottomSheet());
-                        },
-                        child: CircleAvatar(
-                          backgroundImage: flag == 0
-                              ? NetworkImage(image!)
-                              : FileImage(File(img!.path)) as ImageProvider,
-                          radius: 70,
-                        ),
-                      ),
-                      TextFormField(
-                        controller: nameController..text = name!,
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (value) {
-                          if (value!.isEmpty) return "Enter Name";
-                        },
-                      ),
-                      TextFormField(
-                        controller: phoneController..text = phone!,
-                        keyboardType: TextInputType.phone,
-                        validator: (value) {
-                          if (value!.isEmpty) return "Enter phone number";
-                          if (value.length != 10)
-                            return "Enter valid phone number";
-                        },
-                      ),
-                      TextFormField(
-                        controller: placeController..text = place!,
-                        keyboardType: TextInputType.text,
-                        validator: (value) {
-                          if (value!.isEmpty) return "Enter Place";
-                        },
-                      ),
-                      ElevatedButton(
-                        onPressed: () {
-                          if (formKey.currentState!.validate()) {
-                            showDialog(
-                              barrierDismissible: false,
-                              context: context,
-                              builder: (BuildContext context) {
-                                return Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircularProgressIndicator(),
-                                    Text(
-                                      "Please wait...",
-                                      style: TextStyle(
-                                        decoration: TextDecoration.none,
-                                        fontSize: 20,
-                                        color: Colors.white,
-                                      ),
+      body: FutureBuilder(
+        future: _firestore
+            .collection("Users")
+            .doc(_auth.currentUser!.uid)
+            .get()
+            .then((value) {
+          _name = value.data()!['Name'];
+          _image = value.data()!['Image'];
+          _phone = value.data()!['Phone'];
+          _place = value.data()!['Place'];
+        }),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error loading profile',
+                style: AppTextStyles.bodyMedium,
+              ),
+            );
+          }
+
+          // Initialize controllers with fetched data
+          if (_nameController.text.isEmpty && _name != null) {
+            _nameController.text = _name!;
+            _phoneController.text = _phone!;
+            _placeController.text = _place!;
+          }
+
+          return SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: AppSpacing.lg),
+                    // Avatar upload section
+                    Center(
+                      child: Stack(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.primary,
+                                width: 3,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.shadow,
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: CircleAvatar(
+                              radius: AppSpacing.avatarXL / 2,
+                              backgroundColor: AppColors.surface,
+                              backgroundImage: _hasImageChanged && _selectedImage != null
+                                  ? FileImage(File(_selectedImage!.path))
+                                  : (_image != null && _image!.isNotEmpty
+                                      ? NetworkImage(_image!)
+                                      : null) as ImageProvider?,
+                              child: (_image == null || _image!.isEmpty) && !_hasImageChanged
+                                  ? const Icon(
+                                      Icons.person,
+                                      size: AppSpacing.iconXL,
+                                      color: AppColors.textSecondary,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: GestureDetector(
+                              onTap: _showImageSourceBottomSheet,
+                              child: Container(
+                                padding: const EdgeInsets.all(AppSpacing.sm),
+                                decoration: BoxDecoration(
+                                  color: AppColors.secondary,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: AppColors.surface,
+                                    width: 3,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.shadow,
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
                                     ),
                                   ],
-                                );
-                              },
-                            );
-                            updateUser(context);
-                          }
-                        },
-                        child: Text(
-                          "Update",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
+                                ),
+                                child: const Icon(
+                                  Icons.camera_alt,
+                                  size: AppSpacing.iconMD,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          primary: Colors.blue,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(40),
-                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Center(
+                      child: Text(
+                        'Tap to change photo',
+                        style: AppTextStyles.caption,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    // Form fields
+                    Text(
+                      'Personal Information',
+                      style: AppTextStyles.h3,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    ModernTextField(
+                      controller: _nameController,
+                      labelText: 'Full Name',
+                      prefixIcon: Icons.person_outline,
+                      keyboardType: TextInputType.name,
+                      textInputAction: TextInputAction.next,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return "Please enter your name";
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    ModernTextField(
+                      controller: _phoneController,
+                      labelText: 'Phone Number',
+                      prefixIcon: Icons.phone_outlined,
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.next,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return "Please enter your phone number";
+                        }
+                        if (value.length != 10) {
+                          return "Please enter a valid 10-digit phone number";
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    ModernTextField(
+                      controller: _placeController,
+                      labelText: 'Location',
+                      prefixIcon: Icons.location_on_outlined,
+                      keyboardType: TextInputType.text,
+                      textInputAction: TextInputAction.done,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return "Please enter your location";
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    // Email display (read-only)
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(AppSpacing.radiusMD),
+                        border: Border.all(
+                          color: AppColors.divider,
+                          width: 1.5,
                         ),
                       ),
-                    ],
-                  ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.email_outlined,
+                            color: AppColors.textSecondary,
+                            size: AppSpacing.iconMD,
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Email',
+                                  style: AppTextStyles.caption,
+                                ),
+                                const SizedBox(height: AppSpacing.xs),
+                                Text(
+                                  _auth.currentUser?.email ?? '',
+                                  style: AppTextStyles.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.lock_outline,
+                            color: AppColors.textHint,
+                            size: AppSpacing.iconSM,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    // Action buttons
+                    ModernButton(
+                      text: 'Save Changes',
+                      useGradient: true,
+                      isLoading: _isLoading,
+                      onPressed: _isLoading ? null : _handleSaveProfile,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    ModernButton(
+                      text: 'Cancel',
+                      type: ModernButtonType.outlined,
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              Navigator.of(context).pop();
+                            },
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                  ],
                 ),
-              );
-            } else {
-              return Center(child: CircularProgressIndicator());
-            }
-          },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showImageSourceBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppSpacing.radiusXL),
+        ),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.divider,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Choose Profile Photo',
+              style: AppTextStyles.h3,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildImageSourceOption(
+                  icon: Icons.camera_alt,
+                  label: 'Camera',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _pickImage(ImageSource.camera);
+                  },
+                ),
+                _buildImageSourceOption(
+                  icon: Icons.photo_library,
+                  label: 'Gallery',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _pickImage(ImageSource.gallery);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
         ),
       ),
     );
   }
 
-  Widget bottomSheet() {
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      height: 100,
-      width: MediaQuery.of(context).size.width,
-      child: Column(
-        children: [
-          SizedBox(
-            height: 10,
-          ),
-          Text("Choose profile photo"),
-          SizedBox(
-            height: 10,
-          ),
-          Row(
-            children: [
-              TextButton.icon(
-                onPressed: () {
-                  takePhoto(ImageSource.camera);
-                  Navigator.of(context).pop();
-                },
-                icon: Icon(Icons.camera),
-                label: Text("Camera"),
+  Widget _buildImageSourceOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppSpacing.radiusMD),
+      child: Container(
+        width: 120,
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMD),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: AppSpacing.iconXL,
+              color: AppColors.primary,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              label,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600,
               ),
-              TextButton.icon(
-                onPressed: () {
-                  takePhoto(ImageSource.gallery);
-                  Navigator.of(context).pop();
-                },
-                icon: Icon(Icons.image),
-                label: Text("Gallery"),
-              )
-            ],
-          )
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> takePhoto(ImageSource source) async {
-    img = await ImagePicker().pickImage(source: source);
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? pickedImage = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+
+      if (pickedImage != null) {
+        setState(() {
+          _selectedImage = pickedImage;
+          _hasImageChanged = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick image: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleSaveProfile() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
     setState(() {
-      flag = 1;
-      image = img;
+      _isLoading = true;
     });
-  }
 
-  Future<void> updateUser(context) async {
     try {
-      if (flag == 0) {
-        imgUrl = image;
-      } else {
-        Reference firebaseStorage = FirebaseStorage.instance
+      // Upload image if changed
+      if (_hasImageChanged && _selectedImage != null) {
+        final Reference storageRef = FirebaseStorage.instance
             .ref()
             .child("Profile Photos")
-            .child(auth.currentUser!.uid);
-        UploadTask uploadTask = firebaseStorage.putFile(File(img.path));
-        TaskSnapshot taskSnapshot = await uploadTask.whenComplete(() => {});
-        await taskSnapshot.ref.getDownloadURL().then((url) => {imgUrl = url});
+            .child(_auth.currentUser!.uid);
+        
+        final UploadTask uploadTask = storageRef.putFile(File(_selectedImage!.path));
+        final TaskSnapshot taskSnapshot = await uploadTask;
+        _imgUrl = await taskSnapshot.ref.getDownloadURL();
+      } else {
+        _imgUrl = _image;
       }
-      await firestore.collection("Users").doc(auth.currentUser!.uid).update({
-        'Name': nameController.text,
-        'Phone': phoneController.text,
-        'Image': imgUrl,
-        'Place': placeController.text,
-      }).then((value) => {
-            Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => Profile()))
-          });
+
+      // Update user data
+      await _firestore.collection("Users").doc(_auth.currentUser!.uid).update({
+        'Name': _nameController.text.trim(),
+        'Phone': _phoneController.text.trim(),
+        'Image': _imgUrl,
+        'Place': _placeController.text.trim(),
+      });
+
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: "Profile updated successfully",
+          backgroundColor: AppColors.success,
+        );
+        
+        Navigator.of(context).pushReplacement(
+          FadeSlidePageRoute(page: const Profile()),
+        );
+      }
     } catch (e) {
-      Fluttertoast.showToast(msg: "Updation failed");
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update profile: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
-  void select(BuildContext context, var item) {
+  void _handleMenuSelection(BuildContext context, int item) {
     switch (item) {
       case 0:
-        // Navigator.of(context).pushReplacement(
-        //     MaterialPageRoute(builder: (context) => UpdateProfile()));
-        break;
-      case 1:
-        Navigator.of(context)
-            .push(MaterialPageRoute(builder: (context) => ResetPassword()));
-
+        Navigator.of(context).push(
+          FadeSlidePageRoute(page: const ResetPassword()),
+        );
         break;
     }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _placeController.dispose();
+    super.dispose();
   }
 }
